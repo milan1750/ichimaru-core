@@ -121,6 +121,24 @@ function ichimaru_register_menu_category_meta() {
 add_action( 'init', 'ichimaru_register_menu_category_meta' );
 
 /**
+ * Term meta for menu_diet: the order dietary tags appear as filter chips
+ * (and as badges on a dish card, left to right).
+ */
+function ichimaru_register_menu_diet_meta() {
+	register_term_meta(
+		'menu_diet',
+		'sort_order',
+		array(
+			'type'              => 'integer',
+			'single'            => true,
+			'show_in_rest'      => true,
+			'sanitize_callback' => 'absint',
+		)
+	);
+}
+add_action( 'init', 'ichimaru_register_menu_diet_meta' );
+
+/**
  * Extra fields on the "Add Menu Category" screen.
  */
 function ichimaru_menu_category_add_fields() {
@@ -201,6 +219,51 @@ function ichimaru_save_menu_category_meta( $term_id ) {
 }
 add_action( 'created_menu_category', 'ichimaru_save_menu_category_meta' );
 add_action( 'edited_menu_category', 'ichimaru_save_menu_category_meta' );
+
+/**
+ * Order field on the "Add Dietary Tag" screen.
+ */
+function ichimaru_menu_diet_add_fields() {
+	?>
+	<div class="form-field">
+		<label for="ichimaru-diet-sort-order"><?php esc_html_e( 'Order', 'ichimaru-core' ); ?></label>
+		<input type="number" name="ichimaru_sort_order" id="ichimaru-diet-sort-order" value="0" />
+		<p><?php esc_html_e( 'Lower numbers appear first among the filter chips and dish badges.', 'ichimaru-core' ); ?></p>
+	</div>
+	<?php
+}
+add_action( 'menu_diet_add_form_fields', 'ichimaru_menu_diet_add_fields' );
+
+/**
+ * Order field on the "Edit Dietary Tag" screen.
+ */
+function ichimaru_menu_diet_edit_fields( $term ) {
+	$sort_order = get_term_meta( $term->term_id, 'sort_order', true );
+	?>
+	<tr class="form-field">
+		<th scope="row"><label for="ichimaru-diet-sort-order"><?php esc_html_e( 'Order', 'ichimaru-core' ); ?></label></th>
+		<td>
+			<input type="number" name="ichimaru_sort_order" id="ichimaru-diet-sort-order" value="<?php echo esc_attr( $sort_order ); ?>" />
+			<p class="description"><?php esc_html_e( 'Lower numbers appear first among the filter chips and dish badges.', 'ichimaru-core' ); ?></p>
+		</td>
+	</tr>
+	<?php
+}
+add_action( 'menu_diet_edit_form_fields', 'ichimaru_menu_diet_edit_fields' );
+
+/**
+ * Save the menu_diet term meta field.
+ */
+function ichimaru_save_menu_diet_meta( $term_id ) {
+	if ( ! current_user_can( 'manage_categories' ) ) {
+		return;
+	}
+	if ( isset( $_POST['ichimaru_sort_order'] ) ) {
+		update_term_meta( $term_id, 'sort_order', absint( $_POST['ichimaru_sort_order'] ) );
+	}
+}
+add_action( 'created_menu_diet', 'ichimaru_save_menu_diet_meta' );
+add_action( 'edited_menu_diet', 'ichimaru_save_menu_diet_meta' );
 
 /**
  * Meta box: dish details (price, "ask in store", dietary badge wording, extras grouping).
@@ -286,21 +349,53 @@ add_action( 'save_post_menu_item', 'ichimaru_save_menu_item_meta' );
  */
 
 /**
+ * Fetch a taxonomy's terms sorted by their "sort_order" term meta, ASC.
+ * Terms with no order set yet (e.g. just added via the quick "+ Add"
+ * sidebar box, which skips the custom fields) sort to the end instead of
+ * being excluded — a plain get_terms( 'meta_key' => 'sort_order', ... )
+ * would inner-join on that meta and silently drop them.
+ *
+ * @return WP_Term[]
+ */
+function ichimaru_get_ordered_terms( $taxonomy ) {
+	$terms = get_terms(
+		array(
+			'taxonomy'   => $taxonomy,
+			'hide_empty' => true,
+		)
+	);
+	if ( is_wp_error( $terms ) ) {
+		return array();
+	}
+	usort(
+		$terms,
+		function ( $a, $b ) {
+			$order_a = get_term_meta( $a->term_id, 'sort_order', true );
+			$order_b = get_term_meta( $b->term_id, 'sort_order', true );
+			$order_a = ( '' === $order_a ) ? PHP_INT_MAX : (int) $order_a;
+			$order_b = ( '' === $order_b ) ? PHP_INT_MAX : (int) $order_b;
+			return $order_a <=> $order_b ?: strcasecmp( $a->name, $b->name );
+		}
+	);
+	return $terms;
+}
+
+/**
  * Menu categories in display order.
  *
  * @return WP_Term[]
  */
 function ichimaru_get_menu_categories() {
-	$terms = get_terms(
-		array(
-			'taxonomy'   => 'menu_category',
-			'hide_empty' => true,
-			'meta_key'   => 'sort_order',
-			'orderby'    => 'meta_value_num',
-			'order'      => 'ASC',
-		)
-	);
-	return is_wp_error( $terms ) ? array() : $terms;
+	return ichimaru_get_ordered_terms( 'menu_category' );
+}
+
+/**
+ * Dietary tags in display order (filter chips and, per item, badge order).
+ *
+ * @return WP_Term[]
+ */
+function ichimaru_get_menu_diets() {
+	return ichimaru_get_ordered_terms( 'menu_diet' );
 }
 
 /**
@@ -341,27 +436,46 @@ function ichimaru_menu_item_filters( $post_id ) {
 }
 
 /**
- * Visible dietary badges for a menu item as [slug, label] pairs, honouring
- * the "opt." wording and the rule that a Vegan badge supersedes Veggie.
+ * Visible dietary badges for a menu item as [slug, label] pairs, in the
+ * same order as the filter chips. Honours the "opt." wording on Vegan/Halal,
+ * and skips a separate Vegetarian badge when Vegan is already shown. Any
+ * other dietary tag an editor adds is rendered with its own term name.
  *
  * @return array<int, array{0:string,1:string}>
  */
 function ichimaru_menu_item_badges( $post_id ) {
 	$filters = ichimaru_menu_item_filters( $post_id );
-	$badges  = array();
-
-	if ( in_array( 'vegan', $filters, true ) ) {
-		$badges[] = array( 'vegan', get_post_meta( $post_id, '_ichimaru_vegan_opt', true ) ? 'Vegan opt.' : 'Vegan' );
-	} elseif ( in_array( 'veg', $filters, true ) ) {
-		$badges[] = array( 'veg', 'Veggie' );
+	if ( empty( $filters ) ) {
+		return array();
 	}
 
-	if ( in_array( 'halal', $filters, true ) ) {
-		$badges[] = array( 'halal', get_post_meta( $post_id, '_ichimaru_halal_opt', true ) ? 'Halal opt.' : 'Halal' );
-	}
+	$vegan_opt = (bool) get_post_meta( $post_id, '_ichimaru_vegan_opt', true );
+	$halal_opt = (bool) get_post_meta( $post_id, '_ichimaru_halal_opt', true );
+	$badges    = array();
 
-	if ( in_array( 'spicy', $filters, true ) ) {
-		$badges[] = array( 'spicy', 'Spicy' );
+	foreach ( ichimaru_get_menu_diets() as $diet ) {
+		if ( ! in_array( $diet->slug, $filters, true ) ) {
+			continue;
+		}
+		if ( 'veg' === $diet->slug && in_array( 'vegan', $filters, true ) ) {
+			continue; // Vegan already implies vegetarian; don't show both badges.
+		}
+
+		switch ( $diet->slug ) {
+			case 'vegan':
+				$label = $vegan_opt ? 'Vegan opt.' : 'Vegan';
+				break;
+			case 'veg':
+				$label = 'Veggie';
+				break;
+			case 'halal':
+				$label = $halal_opt ? 'Halal opt.' : 'Halal';
+				break;
+			default:
+				$label = $diet->name;
+		}
+
+		$badges[] = array( $diet->slug, $label );
 	}
 
 	return $badges;
