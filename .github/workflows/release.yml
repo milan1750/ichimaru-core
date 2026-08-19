@@ -1,0 +1,68 @@
+name: Release plugin package
+
+# Runs when you publish a GitHub Release (with a tag, e.g. v1.0.0).
+# Also runnable by hand from the Actions tab for a test build.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  PLUGIN_SLUG: ichimaru-core
+  PLUGIN_FILE: ichimaru-core.php
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Determine version
+        id: version
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          if [ -z "$TAG" ]; then
+            TAG="0.0.0-dev"
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Assemble clean plugin folder
+        run: |
+          mkdir -p "build/${PLUGIN_SLUG}"
+          rsync -a \
+            --exclude='.git/' \
+            --exclude='.github/' \
+            --exclude='.gitignore' \
+            --exclude='README.md' \
+            --exclude='build/' \
+            --exclude='*.zip' \
+            --exclude='node_modules/' \
+            ./ "build/${PLUGIN_SLUG}/"
+
+      - name: Stamp release version into plugin header
+        run: |
+          sed -i "s/^ \* Version:.*/ * Version: ${{ steps.version.outputs.version }}/" "build/${PLUGIN_SLUG}/${PLUGIN_FILE}"
+          sed -i "s/^define( 'ICHIMARU_CORE_VERSION', '.*' );/define( 'ICHIMARU_CORE_VERSION', '${{ steps.version.outputs.version }}' );/" "build/${PLUGIN_SLUG}/${PLUGIN_FILE}"
+
+      - name: Zip plugin
+        run: |
+          cd build
+          zip -r "../${PLUGIN_SLUG}-${{ steps.version.outputs.version }}.zip" "${PLUGIN_SLUG}"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PLUGIN_SLUG }}-${{ steps.version.outputs.version }}
+          path: ${{ env.PLUGIN_SLUG }}-${{ steps.version.outputs.version }}.zip
+
+      - name: Attach zip to the GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: ${{ env.PLUGIN_SLUG }}-${{ steps.version.outputs.version }}.zip
