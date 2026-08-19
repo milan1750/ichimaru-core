@@ -29,7 +29,10 @@ function ichimaru_register_location_type() {
 			'publicly_queryable' => false,
 			'show_ui'            => true,
 			'show_in_menu'       => true,
-			'show_in_rest'       => true,
+			// Not exposed via REST: all editing happens through the classic
+			// "Location Details" meta box below, and a non-public post type with
+			// show_in_rest=true is still world-readable at /wp-json/wp/v2/location.
+			'show_in_rest'       => false,
 			'menu_icon'          => 'dashicons-location',
 			'supports'           => array( 'title', 'page-attributes' ),
 			'has_archive'        => false,

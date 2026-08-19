@@ -271,7 +271,11 @@ function ichimaru_import_zip_file( $tmp_zip ) {
 		ichimaru_rrmdir( $extract_dir );
 		return new WP_Error( 'ichimaru_zip_open_failed', __( 'Could not open the uploaded .zip file.', 'ichimaru-core' ) );
 	}
-	$zip->extractTo( $extract_dir );
+	if ( ! ichimaru_safe_extract_zip( $zip, $extract_dir ) ) {
+		$zip->close();
+		ichimaru_rrmdir( $extract_dir );
+		return new WP_Error( 'ichimaru_unsafe_zip', __( 'The .zip file contains an invalid entry and was not imported.', 'ichimaru-core' ) );
+	}
 	$zip->close();
 
 	$json_path = $extract_dir . 'data.json';
@@ -332,12 +336,11 @@ function ichimaru_import_zip_file( $tmp_zip ) {
 	global $wpdb;
 
 	foreach ( (array) ( $data['menu_items'] ?? array() ) as $item ) {
-		$existing_id = $wpdb->get_var(
-			$wpdb->prepare(
-				"SELECT ID FROM {$wpdb->posts} WHERE post_type = 'menu_item' AND post_title = %s AND post_status != 'trash' LIMIT 1",
-				$item['title']
-			)
-		);
+		// Match on title *and* category, not title alone: the same dish name
+		// can legitimately appear in two categories (e.g. "Wakame Seaweed" is
+		// both a udon topping and an udon bowl) — title-only matching would
+		// silently merge two different items into one.
+		$existing_id = ichimaru_find_menu_item_by_title_and_category( $item['title'], $item['category'] ?? '' );
 
 		$post_args = array(
 			'post_type'    => 'menu_item',
@@ -450,6 +453,18 @@ function ichimaru_handle_import() {
 
 	$tmp_zip = $_FILES['ichimaru_import_file']['tmp_name']; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.MissingUnslash
 
+	// Extension checks are trivially spoofed; confirm the actual file content
+	// is a zip (magic number "PK\x03\x04" or an empty-archive variant) before
+	// handing it to ZipArchive.
+	$handle = fopen( $tmp_zip, 'rb' ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_fopen
+	$magic  = $handle ? fread( $handle, 4 ) : '';
+	if ( $handle ) {
+		fclose( $handle ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_read_fclose
+	}
+	if ( ! in_array( $magic, array( "PK\x03\x04", "PK\x05\x06", "PK\x07\x08" ), true ) ) {
+		ichimaru_redirect_ie_notice( 'import_error', array( 'message' => __( 'That file is not a valid .zip archive.', 'ichimaru-core' ) ) );
+	}
+
 	$result = ichimaru_import_zip_file( $tmp_zip );
 	if ( is_wp_error( $result ) ) {
 		ichimaru_redirect_ie_notice( 'import_error', array( 'message' => $result->get_error_message() ) );
@@ -458,6 +473,44 @@ function ichimaru_handle_import() {
 	ichimaru_redirect_ie_notice( 'import_success', $result );
 }
 add_action( 'admin_post_ichimaru_import', 'ichimaru_handle_import' );
+
+/**
+ * Find an existing menu_item to update, disambiguating same-titled items by
+ * their category (e.g. "Wakame Seaweed" the udon topping vs. the udon bowl).
+ * If several posts share the title and none match the target category, this
+ * treats the item as new rather than guessing — a caller can still create a
+ * duplicate title deliberately.
+ *
+ * @return int Post ID, or 0 if nothing matches.
+ */
+function ichimaru_find_menu_item_by_title_and_category( $title, $category_slug ) {
+	global $wpdb;
+
+	$candidate_ids = $wpdb->get_col(
+		$wpdb->prepare(
+			"SELECT ID FROM {$wpdb->posts} WHERE post_type = 'menu_item' AND post_title = %s AND post_status != 'trash'",
+			$title
+		)
+	);
+	if ( ! $candidate_ids ) {
+		return 0;
+	}
+	if ( 1 === count( $candidate_ids ) && ! $category_slug ) {
+		return (int) $candidate_ids[0];
+	}
+
+	foreach ( $candidate_ids as $candidate_id ) {
+		$terms = wp_get_post_terms( $candidate_id, 'menu_category', array( 'fields' => 'slugs' ) );
+		if ( in_array( $category_slug, $terms, true ) ) {
+			return (int) $candidate_id;
+		}
+	}
+
+	// No candidate is in the right category. If there was only one candidate
+	// to begin with, it's still the best match (e.g. the item had no category
+	// assigned yet); otherwise refuse to guess between ambiguous same-titled items.
+	return 1 === count( $candidate_ids ) ? (int) $candidate_ids[0] : 0;
+}
 
 /**
  * Sideload a local image file and set it as a post's featured image.
@@ -496,6 +549,48 @@ function ichimaru_redirect_ie_notice( $status, $extra = array() ) {
 	);
 	wp_safe_redirect( $url );
 	exit;
+}
+
+/**
+ * Extract a ZipArchive one entry at a time, rejecting any entry whose name
+ * would resolve outside the target directory (path traversal / "zip slip",
+ * e.g. an entry named "../../wp-config.php"). ZipArchive::extractTo() alone
+ * doesn't guarantee protection against this across all PHP/libzip builds.
+ *
+ * @return bool True if every entry was safe and extracted.
+ */
+function ichimaru_safe_extract_zip( ZipArchive $zip, $target_dir ) {
+	$target_dir = wp_normalize_path( trailingslashit( realpath( $target_dir ) ) );
+
+	for ( $i = 0; $i < $zip->numFiles; $i++ ) {
+		$name = $zip->getNameIndex( $i );
+		if ( false === $name || '' === $name ) {
+			continue;
+		}
+		// Reject absolute paths, drive letters, and any ".." segment outright.
+		if ( '/' === $name[0] || preg_match( '#^[A-Za-z]:#', $name ) || false !== strpos( $name, '..' ) ) {
+			return false;
+		}
+
+		$dest = $target_dir . ltrim( wp_normalize_path( $name ), '/' );
+
+		// Belt-and-braces: confirm the resolved path still sits under $target_dir.
+		if ( 0 !== strpos( $dest, $target_dir ) ) {
+			return false;
+		}
+
+		if ( '/' === substr( $name, -1 ) ) {
+			wp_mkdir_p( $dest );
+			continue;
+		}
+
+		wp_mkdir_p( dirname( $dest ) );
+		$contents = $zip->getFromIndex( $i );
+		if ( false === $contents || false === file_put_contents( $dest, $contents ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_file_put_contents
+			return false;
+		}
+	}
+	return true;
 }
 
 /**

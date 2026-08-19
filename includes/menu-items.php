@@ -31,7 +31,11 @@ function ichimaru_register_menu_item_type() {
 			'publicly_queryable' => false,
 			'show_ui'            => true,
 			'show_in_menu'       => true,
-			'show_in_rest'       => true,
+			// Deliberately not exposed via REST: the description field is rendered
+			// as plain text on the front end (see ichimaru_menu_item_desc()), so
+			// there's no block-editor benefit, and it would otherwise make every
+			// dish's data readable by anyone at /wp-json/wp/v2/menu_item.
+			'show_in_rest'       => false,
 			'menu_icon'          => 'dashicons-carrot',
 			'supports'           => array( 'title', 'editor', 'thumbnail', 'page-attributes' ),
 			'has_archive'        => false,
@@ -53,7 +57,7 @@ function ichimaru_register_menu_item_type() {
 			'public'            => false,
 			'show_ui'           => true,
 			'show_admin_column' => true,
-			'show_in_rest'      => true,
+			'show_in_rest'      => false,
 			'rewrite'           => false,
 		)
 	);
@@ -72,7 +76,7 @@ function ichimaru_register_menu_item_type() {
 			'public'            => false,
 			'show_ui'           => true,
 			'show_admin_column' => true,
-			'show_in_rest'      => true,
+			'show_in_rest'      => false,
 			'rewrite'           => false,
 		)
 	);
@@ -91,7 +95,7 @@ function ichimaru_register_menu_category_meta() {
 		array(
 			'type'              => 'string',
 			'single'            => true,
-			'show_in_rest'      => true,
+			'show_in_rest'      => false,
 			'sanitize_callback' => 'sanitize_text_field',
 		)
 	);
@@ -101,7 +105,7 @@ function ichimaru_register_menu_category_meta() {
 		array(
 			'type'              => 'string',
 			'single'            => true,
-			'show_in_rest'      => true,
+			'show_in_rest'      => false,
 			'sanitize_callback' => function ( $value ) {
 				return 'list' === $value ? 'list' : 'card';
 			},
@@ -113,7 +117,7 @@ function ichimaru_register_menu_category_meta() {
 		array(
 			'type'              => 'integer',
 			'single'            => true,
-			'show_in_rest'      => true,
+			'show_in_rest'      => false,
 			'sanitize_callback' => 'absint',
 		)
 	);
@@ -131,7 +135,7 @@ function ichimaru_register_menu_diet_meta() {
 		array(
 			'type'              => 'integer',
 			'single'            => true,
-			'show_in_rest'      => true,
+			'show_in_rest'      => false,
 			'sanitize_callback' => 'absint',
 		)
 	);
