@@ -27,6 +27,8 @@ function ichimaru_core_load_textdomain() {
 add_action( 'init', 'ichimaru_core_load_textdomain' );
 
 require_once ICHIMARU_CORE_DIR . 'includes/menu-items.php';
+require_once ICHIMARU_CORE_DIR . 'includes/locations.php';
+require_once ICHIMARU_CORE_DIR . 'includes/import-export.php';
 
 /**
  * Flush rewrite rules once on activation so future custom post types/taxonomies register cleanly.
