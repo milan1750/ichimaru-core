@@ -121,8 +121,94 @@ function ichimaru_register_menu_category_meta() {
 			'sanitize_callback' => 'absint',
 		)
 	);
+	register_term_meta(
+		'menu_category',
+		'show_on_home',
+		array(
+			'type'              => 'boolean',
+			'single'            => true,
+			'show_in_rest'      => false,
+			'sanitize_callback' => 'rest_sanitize_boolean',
+		)
+	);
+	register_term_meta(
+		'menu_category',
+		'category_image_id',
+		array(
+			'type'              => 'integer',
+			'single'            => true,
+			'show_in_rest'      => false,
+			'sanitize_callback' => 'absint',
+		)
+	);
 }
 add_action( 'init', 'ichimaru_register_menu_category_meta' );
+
+/**
+ * Load the WP media uploader on the Menu Category add/edit screens only.
+ */
+function ichimaru_enqueue_menu_category_media( $hook ) {
+	if ( ! in_array( $hook, array( 'edit-tags.php', 'term.php' ), true ) ) {
+		return;
+	}
+	$screen = get_current_screen();
+	if ( ! $screen || 'menu_category' !== $screen->taxonomy ) {
+		return;
+	}
+	wp_enqueue_media();
+}
+add_action( 'admin_enqueue_scripts', 'ichimaru_enqueue_menu_category_media' );
+
+/**
+ * Inline JS driving the "Category image" media-uploader field, shared by
+ * the add and edit screens (they never render on the same page).
+ */
+function ichimaru_menu_category_image_field_script() {
+	?>
+	<script>
+	( function( $ ) {
+		function ichimaruBindCategoryImagePicker( $scope ) {
+			var $button  = $scope.find( '#ichimaru-category-image-button' );
+			var $remove  = $scope.find( '#ichimaru-category-image-remove' );
+			var $input   = $scope.find( '#ichimaru-category-image-id' );
+			var $preview = $scope.find( '#ichimaru-category-image-preview' );
+			var frame;
+
+			$button.on( 'click', function( e ) {
+				e.preventDefault();
+				if ( frame ) {
+					frame.open();
+					return;
+				}
+				frame = wp.media( {
+					title: '<?php echo esc_js( __( 'Select category image', 'ichimaru-core' ) ); ?>',
+					multiple: false,
+					library: { type: 'image' }
+				} );
+				frame.on( 'select', function() {
+					var attachment = frame.state().get( 'selection' ).first().toJSON();
+					var url = ( attachment.sizes && attachment.sizes.medium ) ? attachment.sizes.medium.url : attachment.url;
+					$input.val( attachment.id );
+					$preview.html( '<img src="' + url + '" style="max-width:150px;height:auto;display:block;" />' );
+					$remove.show();
+				} );
+				frame.open();
+			} );
+
+			$remove.on( 'click', function( e ) {
+				e.preventDefault();
+				$input.val( '' );
+				$preview.empty();
+				$remove.hide();
+			} );
+		}
+		$( function() {
+			ichimaruBindCategoryImagePicker( $( document ) );
+		} );
+	} )( jQuery );
+	</script>
+	<?php
+}
 
 /**
  * Term meta for menu_diet: the order dietary tags appear as filter chips
@@ -164,7 +250,22 @@ function ichimaru_menu_category_add_fields() {
 		<input type="number" name="ichimaru_sort_order" id="ichimaru-sort-order" value="0" />
 		<p><?php esc_html_e( 'Lower numbers appear first in the filter bar and page.', 'ichimaru-core' ); ?></p>
 	</div>
+	<div class="form-field">
+		<label>
+			<input type="checkbox" name="ichimaru_show_on_home" id="ichimaru-show-on-home" value="1" />
+			<?php esc_html_e( 'Show on homepage "Our Menu" section', 'ichimaru-core' ); ?>
+		</label>
+	</div>
+	<div class="form-field">
+		<label for="ichimaru-category-image-button"><?php esc_html_e( 'Category image', 'ichimaru-core' ); ?></label>
+		<input type="hidden" name="ichimaru_category_image_id" id="ichimaru-category-image-id" value="" />
+		<div id="ichimaru-category-image-preview" style="margin-bottom:8px;"></div>
+		<button type="button" class="button" id="ichimaru-category-image-button"><?php esc_html_e( 'Select image', 'ichimaru-core' ); ?></button>
+		<button type="button" class="button" id="ichimaru-category-image-remove" style="display:none;"><?php esc_html_e( 'Remove', 'ichimaru-core' ); ?></button>
+		<p><?php esc_html_e( 'Optional. Used as the photo on the homepage "Our Menu" card. If not set, the first dish photo in this category is used instead.', 'ichimaru-core' ); ?></p>
+	</div>
 	<?php
+	ichimaru_menu_category_image_field_script();
 }
 add_action( 'menu_category_add_form_fields', 'ichimaru_menu_category_add_fields' );
 
@@ -175,6 +276,9 @@ function ichimaru_menu_category_edit_fields( $term ) {
 	$jp_label      = get_term_meta( $term->term_id, 'jp_label', true );
 	$display_style = get_term_meta( $term->term_id, 'display_style', true ) ?: 'card';
 	$sort_order    = get_term_meta( $term->term_id, 'sort_order', true );
+	$show_on_home  = get_term_meta( $term->term_id, 'show_on_home', true );
+	$image_id      = (int) get_term_meta( $term->term_id, 'category_image_id', true );
+	$image_url     = $image_id ? wp_get_attachment_image_url( $image_id, 'medium' ) : '';
 	?>
 	<tr class="form-field">
 		<th scope="row"><label for="ichimaru-jp-label"><?php esc_html_e( 'Japanese label', 'ichimaru-core' ); ?></label></th>
@@ -199,7 +303,32 @@ function ichimaru_menu_category_edit_fields( $term ) {
 			<p class="description"><?php esc_html_e( 'Lower numbers appear first in the filter bar and page.', 'ichimaru-core' ); ?></p>
 		</td>
 	</tr>
+	<tr class="form-field">
+		<th scope="row"><label for="ichimaru-show-on-home"><?php esc_html_e( 'Homepage', 'ichimaru-core' ); ?></label></th>
+		<td>
+			<label>
+				<input type="checkbox" name="ichimaru_show_on_home" id="ichimaru-show-on-home" value="1" <?php checked( $show_on_home ); ?> />
+				<?php esc_html_e( 'Show on homepage "Our Menu" section', 'ichimaru-core' ); ?>
+			</label>
+			<p class="description"><?php esc_html_e( 'Uses the first dish in this category (in Order) that has a photo.', 'ichimaru-core' ); ?></p>
+		</td>
+	</tr>
+	<tr class="form-field">
+		<th scope="row"><label for="ichimaru-category-image-button"><?php esc_html_e( 'Category image', 'ichimaru-core' ); ?></label></th>
+		<td>
+			<input type="hidden" name="ichimaru_category_image_id" id="ichimaru-category-image-id" value="<?php echo esc_attr( $image_id ); ?>" />
+			<div id="ichimaru-category-image-preview" style="margin-bottom:8px;">
+				<?php if ( $image_url ) : ?>
+					<img src="<?php echo esc_url( $image_url ); ?>" style="max-width:150px;height:auto;display:block;" />
+				<?php endif; ?>
+			</div>
+			<button type="button" class="button" id="ichimaru-category-image-button"><?php esc_html_e( 'Select image', 'ichimaru-core' ); ?></button>
+			<button type="button" class="button" id="ichimaru-category-image-remove" style="<?php echo $image_url ? '' : 'display:none;'; ?>"><?php esc_html_e( 'Remove', 'ichimaru-core' ); ?></button>
+			<p class="description"><?php esc_html_e( 'Optional. Used as the photo on the homepage "Our Menu" card. If not set, the first dish photo in this category is used instead.', 'ichimaru-core' ); ?></p>
+		</td>
+	</tr>
 	<?php
+	ichimaru_menu_category_image_field_script();
 }
 add_action( 'menu_category_edit_form_fields', 'ichimaru_menu_category_edit_fields' );
 
@@ -219,6 +348,10 @@ function ichimaru_save_menu_category_meta( $term_id ) {
 	}
 	if ( isset( $_POST['ichimaru_sort_order'] ) ) {
 		update_term_meta( $term_id, 'sort_order', absint( $_POST['ichimaru_sort_order'] ) );
+	}
+	update_term_meta( $term_id, 'show_on_home', isset( $_POST['ichimaru_show_on_home'] ) ? 1 : 0 );
+	if ( isset( $_POST['ichimaru_category_image_id'] ) ) {
+		update_term_meta( $term_id, 'category_image_id', absint( $_POST['ichimaru_category_image_id'] ) );
 	}
 }
 add_action( 'created_menu_category', 'ichimaru_save_menu_category_meta' );
@@ -349,6 +482,64 @@ function ichimaru_save_menu_item_meta( $post_id ) {
 add_action( 'save_post_menu_item', 'ichimaru_save_menu_item_meta' );
 
 /**
+ * Meta box: which Locations this dish is available at, feeding the Menu
+ * page's Location filter (see ichimaru_menu_item_location_ids() below).
+ */
+function ichimaru_add_menu_item_locations_meta_box() {
+	add_meta_box(
+		'ichimaru_menu_item_locations',
+		__( 'Available At', 'ichimaru-core' ),
+		'ichimaru_render_menu_item_locations_meta_box',
+		'menu_item',
+		'side',
+		'default'
+	);
+}
+add_action( 'add_meta_boxes_menu_item', 'ichimaru_add_menu_item_locations_meta_box' );
+
+function ichimaru_render_menu_item_locations_meta_box( $post ) {
+	wp_nonce_field( 'ichimaru_save_menu_item_locations', 'ichimaru_menu_item_locations_nonce' );
+
+	$locations = ichimaru_get_locations();
+	if ( ! $locations ) {
+		echo '<p class="description">' . esc_html__( 'No locations yet — add one under Locations.', 'ichimaru-core' ) . '</p>';
+		return;
+	}
+
+	// A dish with no saved selection yet (new, or created before this field
+	// existed) defaults to every current location, so nothing silently
+	// disappears from a location's menu the first time this box is seen.
+	// Once saved, whatever the editor actually checked is what's stored.
+	$has_saved = metadata_exists( 'post', $post->ID, '_ichimaru_location_ids' );
+	$selected  = $has_saved ? ichimaru_menu_item_location_ids( $post->ID ) : wp_list_pluck( $locations, 'ID' );
+
+	foreach ( $locations as $location ) {
+		?>
+		<label style="display:block;margin-bottom:6px;">
+			<input type="checkbox" name="ichimaru_locations[]" value="<?php echo esc_attr( $location->ID ); ?>" <?php checked( in_array( $location->ID, $selected, true ) ); ?> />
+			<?php echo esc_html( $location->post_title ); ?>
+		</label>
+		<?php
+	}
+}
+
+function ichimaru_save_menu_item_locations_meta( $post_id ) {
+	if ( ! isset( $_POST['ichimaru_menu_item_locations_nonce'] ) || ! wp_verify_nonce( $_POST['ichimaru_menu_item_locations_nonce'], 'ichimaru_save_menu_item_locations' ) ) {
+		return;
+	}
+	if ( defined( 'DOING_AUTOSAVE' ) && DOING_AUTOSAVE ) {
+		return;
+	}
+	if ( ! current_user_can( 'edit_post', $post_id ) ) {
+		return;
+	}
+
+	$ids = isset( $_POST['ichimaru_locations'] ) ? array_map( 'absint', (array) wp_unslash( $_POST['ichimaru_locations'] ) ) : array();
+	update_post_meta( $post_id, '_ichimaru_location_ids', $ids );
+}
+add_action( 'save_post_menu_item', 'ichimaru_save_menu_item_locations_meta' );
+
+/**
  * ---- Read-side helpers used by the theme to render the menu page. ----
  */
 
@@ -391,6 +582,51 @@ function ichimaru_get_ordered_terms( $taxonomy ) {
  */
 function ichimaru_get_menu_categories() {
 	return ichimaru_get_ordered_terms( 'menu_category' );
+}
+
+/**
+ * Menu categories flagged "Show on homepage" (edit a category under Menu
+ * Items → Menu Categories to toggle it), in the same display order.
+ *
+ * @return WP_Term[]
+ */
+function ichimaru_get_homepage_menu_categories() {
+	return array_values(
+		array_filter(
+			ichimaru_get_menu_categories(),
+			function ( $term ) {
+				return (bool) get_term_meta( $term->term_id, 'show_on_home', true );
+			}
+		)
+	);
+}
+
+/**
+ * The first menu_item in a category (in Order) that has a dish photo, for
+ * use as that category's homepage teaser image.
+ *
+ * @return int Attachment ID, or 0 if no item in the category has a photo.
+ */
+function ichimaru_get_category_thumbnail_id( $term_id ) {
+	foreach ( ichimaru_get_menu_items( $term_id ) as $post ) {
+		$thumbnail_id = get_post_thumbnail_id( $post );
+		if ( $thumbnail_id ) {
+			return (int) $thumbnail_id;
+		}
+	}
+	return 0;
+}
+
+/**
+ * The image to use for a category's homepage teaser: the explicit
+ * "Category image" set on the term if there is one, otherwise the first
+ * dish photo (see ichimaru_get_category_thumbnail_id()).
+ *
+ * @return int Attachment ID, or 0 if neither is set.
+ */
+function ichimaru_get_category_image_id( $term_id ) {
+	$image_id = (int) get_term_meta( $term_id, 'category_image_id', true );
+	return $image_id ? $image_id : ichimaru_get_category_thumbnail_id( $term_id );
 }
 
 /**
@@ -437,6 +673,20 @@ function ichimaru_menu_item_filters( $post_id ) {
 		return array();
 	}
 	return wp_list_pluck( $terms, 'slug' );
+}
+
+/**
+ * Location post IDs a menu item is available at (set via the "Available At"
+ * meta box), feeding the Menu page's Location filter data-locations
+ * attribute. An empty result means no location data has been saved for
+ * this item yet — the "All" filter still shows it, but it won't match a
+ * specific location filter until "Available At" is set.
+ *
+ * @return int[]
+ */
+function ichimaru_menu_item_location_ids( $post_id ) {
+	$ids = get_post_meta( $post_id, '_ichimaru_location_ids', true );
+	return is_array( $ids ) ? array_map( 'absint', $ids ) : array();
 }
 
 /**

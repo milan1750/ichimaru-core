@@ -69,6 +69,7 @@ function ichimaru_render_location_meta_box( $post ) {
 	$maps_url     = get_post_meta( $post->ID, '_ichimaru_maps_url', true );
 	$lat          = get_post_meta( $post->ID, '_ichimaru_lat', true );
 	$lng          = get_post_meta( $post->ID, '_ichimaru_lng', true );
+	$allergen_pdf = get_post_meta( $post->ID, '_ichimaru_allergen_pdf', true );
 	?>
 	<p class="description"><?php esc_html_e( 'Title: how the location appears, e.g. "Ichimaru — Islington".', 'ichimaru-core' ); ?></p>
 	<table class="form-table" role="presentation">
@@ -110,8 +111,75 @@ function ichimaru_render_location_meta_box( $post ) {
 			<th><label for="ichimaru-loc-lng"><?php esc_html_e( 'Longitude', 'ichimaru-core' ); ?></label></th>
 			<td><input type="text" id="ichimaru-loc-lng" name="ichimaru_lng" value="<?php echo esc_attr( $lng ); ?>" placeholder="-0.126483" class="regular-text" /></td>
 		</tr>
+		<tr>
+			<th><label for="ichimaru-loc-allergen-pdf"><?php esc_html_e( 'Allergen PDF', 'ichimaru-core' ); ?></label></th>
+			<td>
+				<input type="url" id="ichimaru-loc-allergen-pdf" name="ichimaru_allergen_pdf" value="<?php echo esc_attr( $allergen_pdf ); ?>" placeholder="https://..." class="regular-text" />
+				<button type="button" class="button" id="ichimaru-allergen-pdf-button"><?php esc_html_e( 'Select from Media Library', 'ichimaru-core' ); ?></button>
+				<button type="button" class="button" id="ichimaru-allergen-pdf-remove" style="<?php echo $allergen_pdf ? '' : 'display:none;'; ?>"><?php esc_html_e( 'Remove', 'ichimaru-core' ); ?></button>
+				<p class="description"><?php esc_html_e( 'Paste a PDF URL directly, or use the button to pick/upload one from the Media Library. Used by the [allergen_information] shortcode.', 'ichimaru-core' ); ?></p>
+			</td>
+		</tr>
 	</table>
 	<p class="description"><?php esc_html_e( 'Order on the page: use "Order" in Page Attributes (side panel).', 'ichimaru-core' ); ?></p>
+	<?php
+	ichimaru_allergen_pdf_field_script();
+}
+
+/**
+ * Load the WP media uploader on the Location add/edit screen only.
+ */
+function ichimaru_enqueue_location_media( $hook ) {
+	if ( ! in_array( $hook, array( 'post.php', 'post-new.php' ), true ) ) {
+		return;
+	}
+	$screen = get_current_screen();
+	if ( ! $screen || 'location' !== $screen->post_type ) {
+		return;
+	}
+	wp_enqueue_media();
+}
+add_action( 'admin_enqueue_scripts', 'ichimaru_enqueue_location_media' );
+
+/**
+ * Inline JS driving the "Allergen PDF" media-uploader field.
+ */
+function ichimaru_allergen_pdf_field_script() {
+	?>
+	<script>
+	( function( $ ) {
+		var $button = $( '#ichimaru-allergen-pdf-button' );
+		var $remove = $( '#ichimaru-allergen-pdf-remove' );
+		var $input  = $( '#ichimaru-loc-allergen-pdf' );
+		var frame;
+
+		$button.on( 'click', function( e ) {
+			e.preventDefault();
+			if ( frame ) {
+				frame.open();
+				return;
+			}
+			frame = wp.media( {
+				title: '<?php echo esc_js( __( 'Select or upload an allergen PDF', 'ichimaru-core' ) ); ?>',
+				multiple: false,
+				library: { type: 'application/pdf' },
+				button: { text: '<?php echo esc_js( __( 'Use this PDF', 'ichimaru-core' ) ); ?>' }
+			} );
+			frame.on( 'select', function() {
+				var attachment = frame.state().get( 'selection' ).first().toJSON();
+				$input.val( attachment.url );
+				$remove.show();
+			} );
+			frame.open();
+		} );
+
+		$remove.on( 'click', function( e ) {
+			e.preventDefault();
+			$input.val( '' );
+			$remove.hide();
+		} );
+	} )( jQuery );
+	</script>
 	<?php
 }
 
@@ -141,6 +209,7 @@ function ichimaru_save_location_meta( $post_id ) {
 	update_post_meta( $post_id, '_ichimaru_maps_url', isset( $_POST['ichimaru_maps_url'] ) ? esc_url_raw( wp_unslash( $_POST['ichimaru_maps_url'] ) ) : '' );
 	update_post_meta( $post_id, '_ichimaru_lat', isset( $_POST['ichimaru_lat'] ) ? (float) $_POST['ichimaru_lat'] : 0 );
 	update_post_meta( $post_id, '_ichimaru_lng', isset( $_POST['ichimaru_lng'] ) ? (float) $_POST['ichimaru_lng'] : 0 );
+	update_post_meta( $post_id, '_ichimaru_allergen_pdf', isset( $_POST['ichimaru_allergen_pdf'] ) ? esc_url_raw( wp_unslash( $_POST['ichimaru_allergen_pdf'] ) ) : '' );
 }
 add_action( 'save_post_location', 'ichimaru_save_location_meta' );
 
@@ -181,6 +250,7 @@ function ichimaru_location_fields( $post ) {
 		'maps'    => get_post_meta( $post->ID, '_ichimaru_maps_url', true ),
 		'lat'     => (float) get_post_meta( $post->ID, '_ichimaru_lat', true ),
 		'lng'     => (float) get_post_meta( $post->ID, '_ichimaru_lng', true ),
+		'allergen_pdf' => get_post_meta( $post->ID, '_ichimaru_allergen_pdf', true ),
 	);
 }
 

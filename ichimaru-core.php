@@ -4,7 +4,7 @@
  * Plugin Name: Ichimaru Core
  * Plugin URI: https://ichimaruudon.com/
  * Description: Core functionality and data structures for Ichimaru Udon (restaurant locations, menu data, and other content that should survive a theme change).
- * Version: 1.0.2
+ * Version: 1.1.1
  * Requires at least: 6.5
  * Requires PHP: 8.0
  * Author: Ichimaru Udon
@@ -15,7 +15,7 @@
 
 defined('ABSPATH') || exit;
 
-define('ICHIMARU_CORE_VERSION', '1.0.2');
+define('ICHIMARU_CORE_VERSION', '1.1.1');
 define('ICHIMARU_CORE_DIR', plugin_dir_path(__FILE__));
 define('ICHIMARU_CORE_URL', plugins_url('/', __FILE__));
 
@@ -30,7 +30,10 @@ add_action('init', 'ichimaru_core_load_textdomain');
 
 require_once ICHIMARU_CORE_DIR . 'includes/menu-items.php';
 require_once ICHIMARU_CORE_DIR . 'includes/locations.php';
+require_once ICHIMARU_CORE_DIR . 'includes/jobs.php';
 require_once ICHIMARU_CORE_DIR . 'includes/import-export.php';
+require_once ICHIMARU_CORE_DIR . 'includes/shortcodes.php';
+require_once ICHIMARU_CORE_DIR . 'includes/patterns.php';
 
 /**
  * Flush rewrite rules once on activation so future custom post types/taxonomies register cleanly.
