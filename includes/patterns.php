@@ -25,31 +25,74 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * Snapshot slug => the current site's Page ID it's a restore point for.
+ * Snapshot slug => the WordPress page slug (post_name) it's a restore
+ * point for. Deliberately keyed by slug rather than a frozen post ID: IDs
+ * don't survive a page being deleted and recreated (e.g. during an
+ * import, or an editor accidentally trashing and rebuilding a page), but
+ * as long as the replacement page keeps the same slug/URL, the restore
+ * point still finds it. ichimaru_get_page_id_by_snapshot_slug() resolves
+ * the live post ID from this slug at request time — nothing here is
+ * pre-bound to any specific ID.
+ *
  * Only pages in this map get the "Restore original design" button; the
  * block patterns are registered for every file in page-snapshots/
  * regardless (harmless to offer as a starting layout even without a
- * live page ID to restore).
+ * live page to restore).
  *
- * @return array<string,int>
+ * Most snapshot slugs match the page's actual slug 1:1 — 'privacy' is the
+ * one exception, since WordPress creates its default Privacy Policy page
+ * with the slug 'privacy-policy'.
+ *
+ * @return array<string,string>
  */
-function ichimaru_page_snapshot_ids() {
+function ichimaru_page_snapshot_page_slugs() {
 	return apply_filters(
-		'ichimaru_page_snapshot_ids',
+		'ichimaru_page_snapshot_page_slugs',
 		array(
-			'home'                 => 396,
-			'our-story'            => 380,
-			'contact'              => 376,
-			'menu'                 => 203,
-			'locations'            => 379,
-			'group-dining'         => 378,
-			'careers'              => 429,
-			'faqs'                 => 383,
-			'terms'                => 382,
-			'privacy'              => 3,
-			'allergen-information' => 462,
+			'home'                 => 'home',
+			'our-story'            => 'our-story',
+			'contact'              => 'contact',
+			'menu'                 => 'menu',
+			'locations'            => 'locations',
+			'group-dining'         => 'group-dining',
+			'careers'              => 'careers',
+			'faqs'                 => 'faqs',
+			'terms'                => 'terms',
+			'privacy'              => 'privacy-policy',
+			'allergen-information' => 'allergen-information',
 		)
 	);
+}
+
+/**
+ * The live post ID for a snapshot slug, resolved by looking up its
+ * current page slug — or 0 if no such page exists right now (e.g. it was
+ * deleted and never recreated).
+ */
+function ichimaru_get_page_id_by_snapshot_slug( $snapshot_slug ) {
+	$page_slugs = ichimaru_page_snapshot_page_slugs();
+	if ( ! isset( $page_slugs[ $snapshot_slug ] ) ) {
+		return 0;
+	}
+	$page = get_page_by_path( $page_slugs[ $snapshot_slug ], OBJECT, 'page' );
+	return $page ? $page->ID : 0;
+}
+
+/**
+ * The snapshot slug a given post ID currently corresponds to, resolved by
+ * its live page slug — or false if that post isn't one of our known
+ * restore-point pages. Deliberately looks up the CURRENT slug for this ID
+ * rather than searching a frozen ID map, so a page that was deleted and
+ * recreated (new ID, same slug) is still matched correctly.
+ *
+ * @return string|false
+ */
+function ichimaru_get_snapshot_slug_by_page_id( $post_id ) {
+	$page_slug = get_post_field( 'post_name', $post_id );
+	if ( ! $page_slug ) {
+		return false;
+	}
+	return array_search( $page_slug, ichimaru_page_snapshot_page_slugs(), true );
 }
 
 /**
@@ -165,11 +208,12 @@ add_action( 'rest_api_init', 'ichimaru_register_restore_point_routes' );
 
 /**
  * REST callback: the restore-point snapshot content for a given post ID,
- * if that post ID has one registered.
+ * if that post's current slug matches one of our known restore-point
+ * pages (see ichimaru_get_snapshot_slug_by_page_id()).
  */
 function ichimaru_rest_get_restore_point( $request ) {
 	$post_id = (int) $request['post_id'];
-	$slug    = array_search( $post_id, ichimaru_page_snapshot_ids(), true );
+	$slug    = ichimaru_get_snapshot_slug_by_page_id( $post_id );
 
 	if ( false === $slug ) {
 		return new WP_Error(
@@ -226,8 +270,8 @@ function ichimaru_enqueue_restore_point_editor_script() {
 		'ichimaru-restore-point',
 		'ichimaruRestorePoints',
 		array(
-			'ids'    => ichimaru_page_snapshot_ids(),
-			'labels' => ichimaru_page_snapshot_labels(),
+			'pageSlugs' => ichimaru_page_snapshot_page_slugs(),
+			'labels'    => ichimaru_page_snapshot_labels(),
 		)
 	);
 }

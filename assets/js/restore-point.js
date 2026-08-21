@@ -1,9 +1,12 @@
 /**
  * "Restore Original Design" panel — shown in the block editor sidebar on
  * every Page (see ichimaru_enqueue_restore_point_editor_script() in
- * includes/patterns.php). If the current page's ID isn't one of the known
- * restore points (see ichimaru_page_snapshot_ids()), the panel says so
- * instead of offering a button.
+ * includes/patterns.php). Matched by the current page's SLUG, not its post
+ * ID (see ichimaru_page_snapshot_page_slugs()) — an ID goes stale if the
+ * page is ever deleted and recreated, but the slug is what actually
+ * identifies "the same page" to a restore point. If the current slug isn't
+ * one of the known restore points, the panel says so instead of offering
+ * a button.
  *
  * Clicking the button opens a confirmation modal styled with the Ichimaru
  * theme's own palette (see assets/css/restore-point.css) rather than a
@@ -20,12 +23,13 @@
 
 	function RestorePointPanel() {
 		var postId = wp.data.select( 'core/editor' ).getCurrentPostId();
-		var ids = ( window.ichimaruRestorePoints && window.ichimaruRestorePoints.ids ) || {};
+		var postSlug = wp.data.select( 'core/editor' ).getCurrentPost().slug;
+		var pageSlugs = ( window.ichimaruRestorePoints && window.ichimaruRestorePoints.pageSlugs ) || {};
 		var labels = ( window.ichimaruRestorePoints && window.ichimaruRestorePoints.labels ) || {};
 
 		var slug = null;
-		for ( var key in ids ) {
-			if ( ids[ key ] === postId ) {
+		for ( var key in pageSlugs ) {
+			if ( pageSlugs[ key ] === postSlug ) {
 				slug = key;
 				break;
 			}
