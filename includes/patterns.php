@@ -254,7 +254,7 @@ function ichimaru_enqueue_restore_point_editor_script() {
 	wp_enqueue_script(
 		'ichimaru-restore-point',
 		ICHIMARU_CORE_URL . 'assets/js/restore-point.js',
-		array( 'wp-plugins', 'wp-edit-post', 'wp-element', 'wp-components', 'wp-data', 'wp-blocks', 'wp-i18n', 'wp-api-fetch' ),
+		array( 'wp-plugins', 'wp-edit-post', 'wp-editor', 'wp-element', 'wp-components', 'wp-data', 'wp-blocks', 'wp-i18n', 'wp-api-fetch' ),
 		ICHIMARU_CORE_VERSION,
 		true
 	);

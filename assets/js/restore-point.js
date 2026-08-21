@@ -11,9 +11,18 @@
  * Clicking the button opens a confirmation modal styled with the Ichimaru
  * theme's own palette (see assets/css/restore-point.css) rather than a
  * plain browser confirm() — confirming loads that page's frozen snapshot
- * into the editor as unsaved changes. The editor still has to review and
- * click Update themselves, so a stray click can't silently overwrite a
- * live page.
+ * into the editor as unsaved changes via wp.data.dispatch('core/editor')
+ * .resetEditorBlocks(). That's the 'core/editor' package's action, not
+ * 'core/block-editor's lower-level resetBlocks() of the same name — the
+ * block-editor one just swaps the visual block list without marking the
+ * post entity itself as edited, so Update silently has nothing to save,
+ * and the injected blocks end up not properly scoped as the post's own
+ * content in a block-theme's merged template+content editor canvas
+ * (surfacing as "this block is part of a template" if you then click into
+ * them). resetEditorBlocks() edits the actual current-post entity record,
+ * so both Update and normal block editing work correctly afterwards.
+ * The editor still has to review and click Update themselves, so a stray
+ * click can't silently overwrite a live page.
  */
 ( function ( wp ) {
 	'use strict';
@@ -50,7 +59,7 @@
 			wp.apiFetch( { path: '/ichimaru/v1/restore-point/' + postId } )
 				.then( function ( response ) {
 					var blocks = wp.blocks.parse( response.content );
-					wp.data.dispatch( 'core/block-editor' ).resetBlocks( blocks );
+					wp.data.dispatch( 'core/editor' ).resetEditorBlocks( blocks );
 					wp.data.dispatch( 'core/notices' ).createSuccessNotice(
 						__( 'Original design loaded. Review it, then click Update to save.', 'ichimaru-core' ),
 						{ type: 'snackbar' }
