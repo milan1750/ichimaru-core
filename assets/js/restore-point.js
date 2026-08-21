@@ -1,11 +1,16 @@
 /**
- * "Restore Original Design" panel — shown in the block editor sidebar only
- * on pages that have a registered restore point (see
- * ichimaru_enqueue_restore_point_editor_script() in includes/patterns.php).
+ * "Restore Original Design" panel — shown in the block editor sidebar on
+ * every Page (see ichimaru_enqueue_restore_point_editor_script() in
+ * includes/patterns.php). If the current page's ID isn't one of the known
+ * restore points (see ichimaru_page_snapshot_ids()), the panel says so
+ * instead of offering a button.
  *
- * Clicking the button loads that page's frozen snapshot into the editor
- * as unsaved changes — the editor still has to review and click Update
- * themselves, so a stray click can't silently overwrite a live page.
+ * Clicking the button opens a confirmation modal styled with the Ichimaru
+ * theme's own palette (see assets/css/restore-point.css) rather than a
+ * plain browser confirm() — confirming loads that page's frozen snapshot
+ * into the editor as unsaved changes. The editor still has to review and
+ * click Update themselves, so a stray click can't silently overwrite a
+ * live page.
  */
 ( function ( wp ) {
 	'use strict';
@@ -25,26 +30,18 @@
 				break;
 			}
 		}
-		if ( ! slug ) {
-			return null;
-		}
+		var label = slug ? ( labels[ slug ] || slug ) : null;
 
-		var label = labels[ slug ] || slug;
+		var confirmState = wp.element.useState( false );
+		var isConfirmOpen = confirmState[ 0 ];
+		var setConfirmOpen = confirmState[ 1 ];
+
 		var busy = wp.element.useState( false );
 		var isBusy = busy[ 0 ];
 		var setBusy = busy[ 1 ];
 
-		function restore() {
-			var confirmed = window.confirm(
-				__(
-					'This will replace everything currently in the editor with the original design for this page. Your existing edits will be lost unless you Undo — nothing is saved until you click Update. Continue?',
-					'ichimaru-core'
-				)
-			);
-			if ( ! confirmed ) {
-				return;
-			}
-
+		function doRestore() {
+			setConfirmOpen( false );
 			setBusy( true );
 			wp.apiFetch( { path: '/ichimaru/v1/restore-point/' + postId } )
 				.then( function ( response ) {
@@ -67,6 +64,18 @@
 				} );
 		}
 
+		if ( ! slug ) {
+			return el(
+				wp.editPost.PluginDocumentSettingPanel,
+				{ name: 'ichimaru-restore-point', title: __( 'Ichimaru Restore Point', 'ichimaru-core' ) },
+				el(
+					'p',
+					{ style: { fontSize: '12px', color: '#757575', marginTop: 0, marginBottom: 0 } },
+					__( 'Snapshot not found for this page.', 'ichimaru-core' )
+				)
+			);
+		}
+
 		return el(
 			wp.editPost.PluginDocumentSettingPanel,
 			{ name: 'ichimaru-restore-point', title: __( 'Ichimaru Restore Point', 'ichimaru-core' ) },
@@ -81,7 +90,9 @@
 					variant: 'secondary',
 					isBusy: isBusy,
 					disabled: isBusy,
-					onClick: restore,
+					onClick: function () {
+						setConfirmOpen( true );
+					},
 				},
 				isBusy
 					? __( 'Restoring…', 'ichimaru-core' )
@@ -91,7 +102,54 @@
 				'p',
 				{ style: { fontSize: '11px', color: '#757575', marginBottom: 0 } },
 				label
-			)
+			),
+			isConfirmOpen
+				? el(
+					wp.components.Modal,
+					{
+						className: 'ichimaru-restore-modal',
+						title: __( 'Restore Original Design?', 'ichimaru-core' ),
+						onRequestClose: function () {
+							setConfirmOpen( false );
+						},
+					},
+					el(
+						'span',
+						{ className: 'ichimaru-restore-modal__label' },
+						label
+					),
+					el(
+						'p',
+						{ className: 'ichimaru-restore-modal__body' },
+						__(
+							'This will replace everything currently in the editor with the original design for this page. Your existing edits will be lost unless you Undo — nothing is saved until you click Update.',
+							'ichimaru-core'
+						)
+					),
+					el(
+						'div',
+						{ className: 'ichimaru-restore-modal__actions' },
+						el(
+							wp.components.Button,
+							{
+								variant: 'secondary',
+								onClick: function () {
+									setConfirmOpen( false );
+								},
+							},
+							__( 'Cancel', 'ichimaru-core' )
+						),
+						el(
+							wp.components.Button,
+							{
+								variant: 'primary',
+								onClick: doRestore,
+							},
+							__( 'Restore', 'ichimaru-core' )
+						)
+					)
+				)
+				: null
 		);
 	}
 

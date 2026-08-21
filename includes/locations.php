@@ -255,10 +255,31 @@ function ichimaru_location_fields( $post ) {
 }
 
 /**
- * All locations' map data (lat/lng/name/area/mapsUrl), in display order —
- * fed to the front-end map scripts via wp_add_inline_script().
+ * A location's display name with the "Ichimaru — " house-brand prefix
+ * stripped, e.g. "Ichimaru — St Pancras" -> "St Pancras".
+ */
+function ichimaru_location_short_name( $name ) {
+	return preg_replace( '/^Ichimaru\s*[—-]\s*/u', '', $name );
+}
+
+/**
+ * A location's URL-safe slug, derived from its short name (e.g. "St Pancras"
+ * -> "st-pancras") rather than the location post's own post_name, since the
+ * latter is free-form (set whenever the post was created) and not
+ * guaranteed to match the display name. Used as both the card's element id
+ * and the /locations/#slug hash it's linked from (see
+ * ichimaru_locations_layout_shortcode(), ichimaru_footer_locations_shortcode(),
+ * and assets/js/locations-page-map.js).
+ */
+function ichimaru_location_slug( $name ) {
+	return sanitize_title( ichimaru_location_short_name( $name ) );
+}
+
+/**
+ * All locations' map data (lat/lng/name/area/mapsUrl/slug), in display
+ * order — fed to the front-end map scripts via wp_add_inline_script().
  *
- * @return array<int, array{lat:float,lng:float,name:string,area:string,mapsUrl:string}>
+ * @return array<int, array{lat:float,lng:float,name:string,area:string,mapsUrl:string,slug:string}>
  */
 function ichimaru_get_locations_map_data() {
 	$data = array();
@@ -273,6 +294,7 @@ function ichimaru_get_locations_map_data() {
 			'name'    => $fields['name'],
 			'area'    => $fields['area'],
 			'mapsUrl' => $fields['maps'],
+			'slug'    => ichimaru_location_slug( $fields['name'] ),
 		);
 	}
 	return $data;

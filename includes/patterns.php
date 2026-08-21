@@ -203,7 +203,7 @@ function ichimaru_rest_get_restore_point( $request ) {
 
 function ichimaru_enqueue_restore_point_editor_script() {
 	$post = get_post();
-	if ( ! $post || ! in_array( $post->ID, ichimaru_page_snapshot_ids(), true ) ) {
+	if ( ! $post || 'page' !== $post->post_type ) {
 		return;
 	}
 
@@ -213,6 +213,13 @@ function ichimaru_enqueue_restore_point_editor_script() {
 		array( 'wp-plugins', 'wp-edit-post', 'wp-element', 'wp-components', 'wp-data', 'wp-blocks', 'wp-i18n', 'wp-api-fetch' ),
 		ICHIMARU_CORE_VERSION,
 		true
+	);
+
+	wp_enqueue_style(
+		'ichimaru-restore-point',
+		ICHIMARU_CORE_URL . 'assets/css/restore-point.css',
+		array(),
+		ICHIMARU_CORE_VERSION
 	);
 
 	wp_localize_script(

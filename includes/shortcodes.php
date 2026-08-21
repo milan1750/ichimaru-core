@@ -29,9 +29,10 @@ function ichimaru_locations_layout_shortcode() {
 			</div>
 
 			<?php foreach ( $locations as $ichimaru_i => $ichimaru_post ) :
-				$ichimaru_loc = ichimaru_location_fields( $ichimaru_post );
+				$ichimaru_loc  = ichimaru_location_fields( $ichimaru_post );
+				$ichimaru_slug = ichimaru_location_slug( $ichimaru_loc['name'] );
 				?>
-			<div class="loc-card<?php echo 0 === $ichimaru_i ? ' active' : ''; ?>" id="card-<?php echo esc_attr( $ichimaru_i ); ?>" onclick="selectLoc(<?php echo esc_attr( $ichimaru_i ); ?>)">
+			<div class="loc-card<?php echo 0 === $ichimaru_i ? ' active' : ''; ?>" id="<?php echo esc_attr( $ichimaru_slug ); ?>" onclick="selectLoc(<?php echo esc_attr( $ichimaru_i ); ?>)">
 				<div class="loc-card-head">
 					<div class="loc-card-head-left">
 						<div class="loc-pin"></div>
@@ -71,7 +72,7 @@ function ichimaru_locations_layout_shortcode() {
 					<?php if ( $ichimaru_loc['maps'] ) : ?>
 					<a href="<?php echo esc_url( $ichimaru_loc['maps'] ); ?>" target="_blank" rel="noopener" class="btn btn-navy">Get Directions</a>
 					<?php endif; ?>
-					<a href="/menu/" class="btn btn-outline-navy">View Menu</a>
+					<a href="/menu/?location=<?php echo esc_attr( $ichimaru_post->ID ); ?>" class="btn btn-outline-navy">View Menu</a>
 				</div>
 			</div>
 			<?php endforeach; ?>
@@ -312,7 +313,7 @@ function ichimaru_home_locations_preview_shortcode() {
 		<div class="locations-sidebar" id="locationsSidebar">
 			<?php foreach ( $locations as $ichimaru_index => $ichimaru_post ) :
 				$ichimaru_loc        = ichimaru_location_fields( $ichimaru_post );
-				$ichimaru_short_name = preg_replace( '/^Ichimaru\s*[—-]\s*/u', '', $ichimaru_loc['name'] );
+				$ichimaru_short_name = ichimaru_location_short_name( $ichimaru_loc['name'] );
 				?>
 			<div class="location-entry<?php echo 0 === $ichimaru_index ? ' active' : ''; ?>" onclick="flyTo(<?php echo (int) $ichimaru_index; ?>)" tabindex="0">
 				<div class="location-entry-dot"></div>
@@ -329,6 +330,35 @@ function ichimaru_home_locations_preview_shortcode() {
 	return ob_get_clean();
 }
 add_shortcode( 'ichimaru_home_locations_preview', 'ichimaru_home_locations_preview_shortcode' );
+
+/**
+ * [ichimaru_footer_locations] — the footer's "Locations" link list. Links
+ * to /locations/#{slug} (e.g. #st-pancras) rather than a plain /locations/,
+ * so clicking a location in the footer lands on and centers that location's
+ * card there (see window.selectLoc() in assets/js/locations-page-map.js,
+ * which reads that hash on page load). The slug comes from
+ * ichimaru_location_slug(), the same helper the Locations page's own
+ * [ichimaru_locations_layout] shortcode uses for each card's id, so the two
+ * always match.
+ */
+function ichimaru_footer_locations_shortcode() {
+	$locations = ichimaru_get_locations();
+
+	ob_start();
+	?>
+	<ul class="wp-block-list">
+		<?php foreach ( $locations as $ichimaru_post ) :
+			$ichimaru_loc        = ichimaru_location_fields( $ichimaru_post );
+			$ichimaru_short_name = ichimaru_location_short_name( $ichimaru_loc['name'] );
+			$ichimaru_slug       = ichimaru_location_slug( $ichimaru_loc['name'] );
+			?>
+		<li><a href="/locations/#<?php echo esc_attr( $ichimaru_slug ); ?>"><?php echo esc_html( $ichimaru_short_name ); ?></a></li>
+		<?php endforeach; ?>
+	</ul>
+	<?php
+	return ob_get_clean();
+}
+add_shortcode( 'ichimaru_footer_locations', 'ichimaru_footer_locations_shortcode' );
 
 /**
  * [ichimaru_home_menu_preview] — the homepage's "Our Menu" card grid,
